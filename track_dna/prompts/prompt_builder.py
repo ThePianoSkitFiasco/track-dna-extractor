@@ -11,17 +11,25 @@ class PromptBuilder:
     """Build user-facing summaries and reimagining prompts."""
 
     def enrich_result(
-        self, result: AnalysisResult, user_notes: str | list[str] | None = None
+        self,
+        result: AnalysisResult,
+        user_notes: str | list[str] | None = None,
+        ai_description_notes: str | list[str] | None = None,
     ) -> AnalysisResult:
         """Return a copy of the result with summary and prompt fields populated."""
         notes = self._merge_user_notes(result.user_notes, user_notes)
-        summary = self._build_summary(result, notes)
-        udio_prompt = self._build_udio_prompt(result, notes)
-        suno_prompt = self._build_suno_prompt(result, notes)
-        negative_prompt = self._build_negative_prompt(result, notes)
+        ai_notes = self._merge_user_notes(
+            result.ai_description_notes,
+            ai_description_notes,
+        )
+        summary = self._build_summary(result, notes, ai_notes)
+        udio_prompt = self._build_udio_prompt(result, notes, ai_notes)
+        suno_prompt = self._build_suno_prompt(result, notes, ai_notes)
+        negative_prompt = self._build_negative_prompt(result, notes, ai_notes)
         return replace(
             result,
             user_notes=notes,
+            ai_description_notes=ai_notes,
             summary=summary,
             udio_prompt=udio_prompt,
             suno_prompt=suno_prompt,
@@ -44,7 +52,12 @@ class PromptBuilder:
                 merged.append(cleaned)
         return merged
 
-    def _build_summary(self, result: AnalysisResult, user_notes: list[str]) -> str:
+    def _build_summary(
+        self,
+        result: AnalysisResult,
+        user_notes: list[str],
+        ai_description_notes: list[str],
+    ) -> str:
         """Create a concise plain-English summary."""
         tempo_text = (
             f"around {round(result.estimated_bpm)} BPM"
@@ -57,12 +70,19 @@ class PromptBuilder:
             f"{result.rhythm_description or 'rhythmically steady'}, {tempo_text}. "
             f"It is best treated as a reimagining reference rather than something to clone exactly."
         )
+        if ai_description_notes:
+            base += " External audio-description notes suggest: " + " ".join(
+                self._clean_sentence(note) for note in ai_description_notes
+            ).strip() + "."
         if user_notes:
             return f"{base} User direction suggests: {'; '.join(user_notes)}."
         return base
 
     def _build_udio_prompt(
-        self, result: AnalysisResult, user_notes: list[str]
+        self,
+        result: AnalysisResult,
+        user_notes: list[str],
+        ai_description_notes: list[str],
     ) -> str:
         """Create a detailed Udio-friendly prompt."""
         parts = [
@@ -71,6 +91,15 @@ class PromptBuilder:
             f"Aim for a {result.energy_description or 'balanced'} overall energy, "
             f"a {result.brightness_description or 'balanced'} tonal feel, and "
             f"{self._rhythm_clause(result)}.",
+        ]
+        if ai_description_notes:
+            parts.append(
+                "Strongly use this pasted audio-description as the clearest guide to what the track actually sounds like: "
+                + " ".join(self._clean_sentence(note) for note in ai_description_notes).strip()
+                + "."
+            )
+        parts.extend(
+            [
             self._optional_notes_phrase(
                 "Style direction", result.genre_style_notes, fallback="best treated as stylistically open in v1"
             ),
@@ -89,7 +118,8 @@ class PromptBuilder:
                 "Production", result.production_notes,
                 fallback="with production choices guided by the broad loudness and brightness profile"
             ),
-        ]
+            ]
+        )
         if user_notes:
             parts.append(
                 "Strongly prioritize these user notes when shaping the reimagining: "
@@ -102,7 +132,10 @@ class PromptBuilder:
         return " ".join(part for part in parts if part)
 
     def _build_suno_prompt(
-        self, result: AnalysisResult, user_notes: list[str]
+        self,
+        result: AnalysisResult,
+        user_notes: list[str],
+        ai_description_notes: list[str],
     ) -> str:
         """Create a shorter Suno-friendly prompt."""
         parts = [
@@ -112,14 +145,17 @@ class PromptBuilder:
             f"{result.brightness_description or 'balanced'} tone, "
             f"and {result.rhythm_description or 'steady rhythm'}.",
         ]
-        short_notes = self._collect_short_notes(result, user_notes)
+        short_notes = self._collect_short_notes(result, user_notes, ai_description_notes)
         if short_notes:
             parts.append("Focus on " + "; ".join(short_notes) + ".")
         parts.append("Aim for a clear hook and a convincing emotional arc.")
         return " ".join(parts)
 
     def _build_negative_prompt(
-        self, result: AnalysisResult, user_notes: list[str]
+        self,
+        result: AnalysisResult,
+        user_notes: list[str],
+        ai_description_notes: list[str],
     ) -> str:
         """Create a practical negative prompt."""
         negatives = [
@@ -135,6 +171,8 @@ class PromptBuilder:
         if result.brightness_description == "bright and sharp":
             negatives.append("avoid muddy low-mid build-up")
         for note in user_notes:
+            negatives.extend(self._extract_negative_fragments(note))
+        for note in ai_description_notes:
             negatives.extend(self._extract_negative_fragments(note))
         return ", ".join(dict.fromkeys(negatives))
 
@@ -158,15 +196,19 @@ class PromptBuilder:
         """Format a labeled note block with a fallback."""
         cleaned = [note.strip() for note in notes if note and note.strip()]
         if cleaned and cleaned != ["Not analysed in v1."]:
-            return f"{label}: " + "; ".join(cleaned) + "."
+            return f"{label}: " + "; ".join(self._clean_sentence(note) for note in cleaned) + "."
         return f"{label}: {fallback}."
 
     def _collect_short_notes(
-        self, result: AnalysisResult, user_notes: list[str]
+        self,
+        result: AnalysisResult,
+        user_notes: list[str],
+        ai_description_notes: list[str],
     ) -> list[str]:
         """Gather short prompt fragments in priority order."""
         fragments: list[str] = []
         for bucket in (
+            ai_description_notes,
             user_notes,
             result.mood_notes,
             result.genre_style_notes,
@@ -176,7 +218,7 @@ class PromptBuilder:
             for item in bucket:
                 cleaned = item.strip()
                 if cleaned and cleaned != "Not analysed in v1." and cleaned not in fragments:
-                    fragments.append(cleaned)
+                    fragments.append(self._clean_sentence(cleaned))
                 if len(fragments) >= 4:
                     return fragments
         return fragments
@@ -200,3 +242,7 @@ class PromptBuilder:
         if not text:
             return text
         return text[0].upper() + text[1:]
+
+    def _clean_sentence(self, text: str) -> str:
+        """Trim repeated terminal punctuation before embedding text in prompts."""
+        return text.strip().rstrip(".!?")

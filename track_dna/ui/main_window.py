@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import subprocess
 from pathlib import Path
+from dataclasses import replace
 
 from track_dna.analyzers.basic_audio_analyzer import BasicAudioAnalyzer
 from track_dna.models.analysis_result import AnalysisResult
@@ -160,8 +161,34 @@ else:
             )
             self.user_notes_text.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 12))
 
+            ttk.Label(
+                controls,
+                text="Optional AI/music description: paste a detailed description from MOSS-Audio or another tool",
+                style="Body.TLabel",
+            ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 4))
+
+            self.ai_description_text = ScrolledText(
+                controls,
+                height=6,
+                wrap="word",
+                font=("Helvetica", 11),
+                bg="#0f1318",
+                fg="#f2f4f8",
+                insertbackground="#f2f4f8",
+                relief="flat",
+                padx=12,
+                pady=12,
+            )
+            self.ai_description_text.grid(
+                row=5,
+                column=0,
+                columnspan=3,
+                sticky="ew",
+                pady=(8, 12),
+            )
+
             actions = ttk.Frame(controls, style="Card.TFrame")
-            actions.grid(row=4, column=0, columnspan=3, sticky="ew")
+            actions.grid(row=6, column=0, columnspan=3, sticky="ew")
 
             self.export_button = ttk.Button(
                 actions,
@@ -254,14 +281,21 @@ else:
             self.update_idletasks()
 
             user_notes = self.user_notes_text.get("1.0", "end").strip()
+            ai_description = self.ai_description_text.get("1.0", "end").strip()
             try:
                 base_result = self.analyzer.analyze_file(
                     str(self.selected_file),
                     user_notes=user_notes,
                 )
+                if ai_description:
+                    base_result = replace(
+                        base_result,
+                        ai_description_notes=[ai_description],
+                    )
                 final_result = self.prompt_builder.enrich_result(
                     base_result,
                     user_notes=user_notes,
+                    ai_description_notes=ai_description,
                 )
             except Exception as exc:
                 friendly_message = str(exc).strip() or "Unknown problem during analysis."
@@ -311,6 +345,12 @@ else:
                 "",
                 "User Notes",
                 format_list_items(result.user_notes, empty_text="No user notes provided."),
+                "",
+                "Optional AI / Music Description",
+                format_list_items(
+                    result.ai_description_notes,
+                    empty_text="No pasted AI or external audio description provided.",
+                ),
                 "",
                 "Genre / Style Notes",
                 format_list_items(result.genre_style_notes),

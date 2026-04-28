@@ -53,6 +53,12 @@ def build_txt_report(result: AnalysisResult) -> str:
             "User Notes",
             format_list_items(result.user_notes, empty_text="No user notes provided."),
             "",
+            "Optional AI / Music Description",
+            format_list_items(
+                result.ai_description_notes,
+                empty_text="No pasted AI or external audio description provided.",
+            ),
+            "",
             "Plain-English Summary",
             result.summary or "Summary not generated yet.",
             "",

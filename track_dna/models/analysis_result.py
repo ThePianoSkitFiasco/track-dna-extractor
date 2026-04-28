@@ -44,6 +44,7 @@ class AnalysisResult:
     structure_sections: list[StructureSection] = field(default_factory=list)
     standout_moments: list[str] = field(default_factory=list)
     user_notes: list[str] = field(default_factory=list)
+    ai_description_notes: list[str] = field(default_factory=list)
     udio_prompt: str = ""
     suno_prompt: str = ""
     negative_prompt: str = ""
