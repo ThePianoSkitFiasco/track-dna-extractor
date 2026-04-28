@@ -185,6 +185,30 @@ class BasicAudioAnalyzer(BaseAnalyzer):
             return "fast and busy rhythmic movement"
         return "busy rhythmic movement"
 
+    def _build_production_notes(
+        self,
+        rms_mean: float,
+        rms_max: float,
+        spectral_centroid_mean: float,
+        onset_density: float,
+    ) -> list[str]:
+        """Build simple production notes from the analyzer's existing estimates."""
+        loudness_description = self._describe_loudness(rms_mean, rms_max)
+        energy_description = self._describe_energy(rms_mean, onset_density)
+        brightness_description = self._describe_brightness(spectral_centroid_mean)
+        rhythm_description = self._describe_rhythm(onset_density, tempo=None)
+
+        notes = [
+            f"{loudness_description.capitalize()} loudness with {energy_description} energy.",
+            f"{brightness_description.capitalize()} tonal balance suggested by the brightness estimate.",
+            f"Rhythm feel: {rhythm_description}.",
+        ]
+
+        cleaned_notes = [note.strip() for note in notes if note.strip()]
+        if cleaned_notes:
+            return cleaned_notes
+        return ["Production traits are estimated from basic signal analysis only."]
+
     def _build_structure_sections(
         self,
         audio: Any,
@@ -293,4 +317,3 @@ class BasicAudioAnalyzer(BaseAnalyzer):
             f"Possible standout moment near {seconds_range_to_label(time_value, min(time_value + 8.0, duration_seconds))}"
             for time_value in standout_times
         ]
-
